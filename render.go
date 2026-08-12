@@ -10,6 +10,8 @@ const pageTemplate = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>Lem-in Ant Colony Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>{{.CSS}}</style>
 </head>
 <body>
