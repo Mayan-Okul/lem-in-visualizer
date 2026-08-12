@@ -2,24 +2,42 @@ package main
 
 import (
 	"fmt"
-	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
 )
 
 func main() {
-	http.HandleFunc("/style.css", serveStyle)
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		colony := &Colony{
-			NumAnts: 10,
-		}
-
-		renderPage(w, colony)
-	})
-
-	fmt.Println("Visualizer running at http://localhost:8080")
-
-	err := http.ListenAndServe(":8080", nil)
+	colony, err := ParseColony(os.Stdin)
 	if err != nil {
-		fmt.Println("Server error:", err)
+		fmt.Fprintln(os.Stderr, "visualizer error:", err)
+		os.Exit(1)
 	}
+
+	j, err := colony.ToJSON()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "visualizer error:", err)
+		os.Exit(1)
+	}
+
+	out := "colony_view.html"
+	if err := WriteVisualizerHTML(out, j, "stdin"); err != nil {
+		fmt.Fprintln(os.Stderr, "visualizer error:", err)
+		os.Exit(1)
+	}
+
+	openBrowser(out)
+}
+
+func openBrowser(path string) {
+	var cmd string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = "open"
+	case "windows":
+		cmd = "start"
+	default:
+		cmd = "xdg-open"
+	}
+	exec.Command(cmd, path).Start()
 }
