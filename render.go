@@ -16,23 +16,34 @@ const pageTemplate = `<!DOCTYPE html>
 </head>
 <body>
 <div id="bg" style="background-image:url('{{.BG}}')"></div>
-<div id="bgOverlay"></div>
+<div id="bgScrim"></div>
 
 <div id="topbar">
-  <div>⌗⌗ FORMICARIUM_OS_v1.0</div>
+  <div class="sys">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFB347" stroke-width="2">
+      <circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/>
+      <circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/>
+      <line x1="7" y1="7.5" x2="10" y2="10.5"/><line x1="17" y1="7.5" x2="14" y2="10.5"/>
+      <line x1="10" y1="13.5" x2="7" y2="16.5"/><line x1="14" y1="13.5" x2="17" y2="16.5"/>
+    </svg>
+    <span>LEM-IN_OS_v1.0</span>
+  </div>
   <div class="filename">📄 {{.Filename}}</div>
   <div>((•))</div>
 </div>
 
 <div id="hud">
-  <div>● ANTS: <span class="amber" id="antCount"></span>/<span id="antTotal"></span></div>
-  <div>⇄ MOVES: <span class="amber" id="moveCount">0</span></div>
+  <div>● ANTS: <span class="value" id="antCount">0</span>/<span class="value" id="antTotal"></span></div>
+  <div>⇄ MOVES: <span class="value" id="moveCount">0</span></div>
 </div>
 
 <canvas id="stage"></canvas>
 
 <div id="term">
-  <div class="label">TERM_OUTPUT_LOG</div>
+  <div class="termHeader">
+    <div class="label">TERM_OUTPUT_LOG</div>
+    <div class="rec"><div class="recDot"></div>REC</div>
+  </div>
   <div id="termLog"></div>
 </div>
 
@@ -40,7 +51,7 @@ const pageTemplate = `<!DOCTYPE html>
   <button id="resetBtn">⏮ Reset</button>
   <button id="playBtn">▶ Play/Pause</button>
   <button id="stepBtn">› Step</button>
-  <input id="speed" type="range" min="150" max="2000" value="800">
+  <input id="speed" type="range" min="150" max="2000" value="700">
 </div>
 
 <script>
