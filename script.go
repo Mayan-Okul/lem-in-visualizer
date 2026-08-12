@@ -11,7 +11,7 @@ window.addEventListener('resize', resize);
 resize();
 
 const AMBER = '#FFB347';
-const CYAN = '#2EE6D6';
+const TEAL_LIGHT = '#A8CECD';
 
 const xs = COLONY.Rooms.map(r => r.X), ys = COLONY.Rooms.map(r => r.Y);
 const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -26,15 +26,19 @@ const roomPos = {};
 const roomInfo = {};
 COLONY.Rooms.forEach(r => { roomPos[r.Name] = pos(r); roomInfo[r.Name] = r; });
 
-let ants = {};          // antID -> {x,y,room}
-let roomPulse = {};     // roomName -> {color, intensity}
+let ants = {};
+let roomPulse = {};
 let turnIndex = 0;
 let moveCount = 0;
+let arrivedCount = 0;
 let playing = false;
 
-function log(msg) {
+function log(msg, isStep) {
   const el = document.getElementById('termLog');
-  el.innerHTML += '<div>&gt; ' + msg + '</div>';
+  const div = document.createElement('div');
+  if (isStep) div.className = 'step';
+  div.textContent = (isStep ? '> ' : '') + msg;
+  el.appendChild(div);
   el.scrollTop = el.scrollHeight;
 }
 
@@ -52,8 +56,7 @@ function decayPulses() {
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // tunnels
-  ctx.strokeStyle = 'rgba(180,140,90,0.35)';
+  ctx.strokeStyle = 'rgba(210,180,140,0.3)';
   ctx.lineWidth = 1.5;
   COLONY.Links.forEach(l => {
     const a = roomPos[l.From], b = roomPos[l.To];
@@ -61,7 +64,6 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
   });
 
-  // rooms (square nodes, per spec)
   COLONY.Rooms.forEach(r => {
     const p = roomPos[r.Name];
     const size = r.IsStart || r.IsEnd ? 26 : 18;
@@ -72,20 +74,19 @@ function draw() {
       ctx.shadowColor = pulseInfo.color;
       ctx.shadowBlur = 20 * pulseInfo.intensity;
     }
-    ctx.fillStyle = r.IsStart || r.IsEnd ? '#1c1c1c' : '#131313';
-    ctx.strokeStyle = pulseInfo ? pulseInfo.color : (r.IsStart || r.IsEnd ? AMBER : 'rgba(255,255,255,0.25)');
+    ctx.fillStyle = r.IsStart || r.IsEnd ? '#20201f' : '#1a1a1a';
+    ctx.strokeStyle = pulseInfo ? pulseInfo.color : (r.IsStart || r.IsEnd ? AMBER : 'rgba(229,226,225,0.25)');
     ctx.lineWidth = r.IsStart || r.IsEnd ? 2 : 1;
     roundRect(ctx, p.x - size/2, p.y - size/2, size, size, 4);
     ctx.fill(); ctx.stroke();
     ctx.restore();
 
-    ctx.fillStyle = 'rgba(220,235,240,0.85)';
-    ctx.font = '11px monospace';
+    ctx.fillStyle = 'rgba(229,226,225,0.85)';
+    ctx.font = '11px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
     ctx.fillText(r.Name, p.x, p.y + size/2 + 16);
   });
 
-  // ants (glowing amber circles)
   Object.entries(ants).forEach(([id, a]) => {
     ctx.save();
     ctx.shadowColor = AMBER;
@@ -96,7 +97,7 @@ function draw() {
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = AMBER;
-    ctx.font = '9px monospace';
+    ctx.font = '9px "JetBrains Mono", monospace';
     ctx.fillText('L' + id, a.x + 8, a.y - 8);
   });
 
@@ -114,6 +115,7 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function applyTurn(turn) {
+  log('Step ' + (turnIndex+1), true);
   turn.Moves.forEach(m => {
     const from = ants[m.Ant] ? ants[m.Ant].room : COLONY.Rooms.find(r => r.IsStart).Name;
     const target = roomPos[m.Room];
@@ -122,17 +124,17 @@ function applyTurn(turn) {
     ants[m.Ant] = { x: target.x, y: target.y, room: m.Room };
     moveCount++;
 
-    // departure pulse (cyan) on the room the ant just left
-    if (from) pulse(from, CYAN);
-
-    // arrival glow (amber) at ##end
+    if (from) pulse(from, TEAL_LIGHT);
     if (targetInfo && targetInfo.IsEnd) {
       pulse(m.Room, AMBER);
+      arrivedCount++;
+      delete ants[m.Ant];
     }
 
-    log('Step ' + (turnIndex+1) + ': L' + m.Ant + '\u2192' + m.Room);
+    log('L' + m.Ant + '\u2192' + m.Room);
   });
   document.getElementById('moveCount').textContent = moveCount;
+  document.getElementById('antCount').textContent = arrivedCount;
 }
 
 function stepForward() {
@@ -146,12 +148,15 @@ function reset() {
   roomPulse = {};
   turnIndex = 0;
   moveCount = 0;
+  arrivedCount = 0;
   playing = false;
   document.getElementById('termLog').innerHTML = '';
   document.getElementById('moveCount').textContent = 0;
+  document.getElementById('antCount').textContent = 0;
 }
 
-document.getElementById('antCount').textContent = COLONY.NumAnts;
+document.getElementById('antTotal').textContent = COLONY.NumAnts;
+document.getElementById('antCount').textContent = 0;
 document.getElementById('stepBtn').onclick = stepForward;
 document.getElementById('playBtn').onclick = () => playing = !playing;
 document.getElementById('resetBtn').onclick = reset;
@@ -159,7 +164,7 @@ document.getElementById('resetBtn').onclick = reset;
 function loop() {
   if (playing) stepForward();
   draw();
-  requestAnimationFrame(() => setTimeout(loop, parseInt(document.getElementById('speed').value)));
+  setTimeout(loop, parseInt(document.getElementById('speed').value));
 }
 draw();
 loop();
