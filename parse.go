@@ -3,64 +3,54 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"os"
+	"io"
 	"strconv"
 	"strings"
 )
 
-func ParseColony(r *os.File) (*Colony, error) {
+func ParseColony(r io.Reader) (*Colony, error) {
 	scanner := bufio.NewScanner(r)
-	c := &Colony{}
-
-	nextIsStart, nextIsEnd := false, false
-	stage := "ants" // ants -> graph -> turns
+	colony := &Colony{}
+	stage := "ants"
+	nextIsStart := false
+	nextIsEnd := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-
 		if line == "" {
-			stage = "turns"
 			continue
 		}
 
-		switch {
-		case stage == "ants":
+		if stage == "ants" {
 			n, err := strconv.Atoi(line)
 			if err != nil {
-				return nil, fmt.Errorf("expected ant count, got %q", line)
+				return nil, fmt.Errorf("invalid number of ants: %w", err)
 			}
-			c.NumAnts = n
+			colony.NumAnts = n
 			stage = "graph"
+			continue
+		}
 
-		case line == "##start":
+		if line == "##start" {
 			nextIsStart = true
-
-		case line == "##end":
+			continue
+		}
+		if line == "##end" {
 			nextIsEnd = true
+			continue
+		}
 
-		case stage == "graph" && strings.Contains(line, "-") && !strings.HasPrefix(line, "L"):
-			parts := strings.SplitN(line, "-", 2)
-			c.Links = append(c.Links, Link{From: parts[0], To: parts[1]})
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
 
-		case stage == "graph":
-			fields := strings.Fields(line)
-			if len(fields) != 3 {
-				continue
-			}
-			x, err1 := strconv.Atoi(fields[1])
-			y, err2 := strconv.Atoi(fields[2])
-			if err1 != nil || err2 != nil {
-				continue
-			}
-			c.Rooms = append(c.Rooms, Room{
-				Name: fields[0], X: x, Y: y,
-				IsStart: nextIsStart, IsEnd: nextIsEnd,
-			})
-			nextIsStart, nextIsEnd = false, false
-
-		case stage == "turns":
+		// Turn line: any line whose first token starts with 'L' is a
+		// move line (Lant-room), never a room, since room names can't
+		// start with 'L' per the spec.
+		if strings.HasPrefix(fields[0], "L") {
 			var turn Turn
-			for _, tok := range strings.Fields(line) {
+			for _, tok := range fields {
 				tok = strings.TrimPrefix(tok, "L")
 				parts := strings.SplitN(tok, "-", 2)
 				if len(parts) != 2 {
@@ -68,9 +58,45 @@ func ParseColony(r *os.File) (*Colony, error) {
 				}
 				turn.Moves = append(turn.Moves, Move{Ant: parts[0], Room: parts[1]})
 			}
-			c.Turns = append(c.Turns, turn)
+			colony.Turns = append(colony.Turns, turn)
+			continue
 		}
+
+		// Room definition: "name x y"
+		if len(fields) == 3 {
+			x, errX := strconv.Atoi(fields[1])
+			y, errY := strconv.Atoi(fields[2])
+			if errX == nil && errY == nil {
+				colony.Rooms = append(colony.Rooms, Room{
+					Name:    fields[0],
+					X:       x,
+					Y:       y,
+					IsStart: nextIsStart,
+					IsEnd:   nextIsEnd,
+				})
+				nextIsStart = false
+				nextIsEnd = false
+				continue
+			}
+		}
+
+		// Link definition: "name1-name2"
+		if len(fields) == 1 && strings.Contains(line, "-") {
+			parts := strings.SplitN(line, "-", 2)
+			if len(parts) == 2 {
+				colony.Links = append(colony.Links, Link{
+					From: parts[0],
+					To:   parts[1],
+				})
+			}
+			continue
+		}
+
+		// unknown command: ignored, per spec
 	}
 
-	return c, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return colony, nil
 }
