@@ -1,155 +1,116 @@
 package main
 
 const visualizerJS = `
-const canvas = document.getElementById('stage');
-const ctx = canvas.getContext('2d');
-function resize() { canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; }
-window.addEventListener('resize', resize);
-resize();
-
-const AMBER = '#FFB347';
-const CYAN = '#00FFFF';
-const DIM = '#A3A3A3';
-const TUNNEL = '#393939';
+const svgNS = "http://www.w3.org/2000/svg";
+const linkSvg = document.getElementById('linkSvg');
+const nodeLayer = document.getElementById('nodeLayer');
+const antLayer = document.getElementById('antLayer');
 
 const xs = COLONY.Rooms.map(r => r.X), ys = COLONY.Rooms.map(r => r.Y);
 const minX = Math.min(...xs), maxX = Math.max(...xs);
 const minY = Math.min(...ys), maxY = Math.max(...ys);
-const padX = 90, padY = 90;
-function pos(r) {
-  const x = padX + (canvas.width - 2*padX) * (maxX === minX ? 0.5 : (r.X - minX) / (maxX - minX));
-  const y = padY + (canvas.height - 2*padY) * (maxY === minY ? 0.5 : (r.Y - minY) / (maxY - minY));
-  return {x, y};
+const PAD = 12;
+
+function pct(r) {
+  const px = PAD + (100 - 2*PAD) * (maxX === minX ? 0.5 : (r.X - minX) / (maxX - minX));
+  const py = PAD + (100 - 2*PAD) * (maxY === minY ? 0.5 : (r.Y - minY) / (maxY - minY));
+  return { x: px, y: py };
 }
-const roomPos = {};
-const roomInfo = {};
-COLONY.Rooms.forEach(r => { roomPos[r.Name] = pos(r); roomInfo[r.Name] = r; });
-const startRoomName = COLONY.Rooms.find(r => r.IsStart).Name;
-const endRoomName = COLONY.Rooms.find(r => r.IsEnd).Name;
+const roomPct = {};
+COLONY.Rooms.forEach(r => { roomPct[r.Name] = pct(r); });
+const startName = COLONY.Rooms.find(r => r.IsStart).Name;
+const endName = COLONY.Rooms.find(r => r.IsEnd).Name;
 
-let ants = {};
-let startPulse = null;
-let endPulse = null;
-let turnIndex = 0;
-let moveCount = 0;
-let arrivedCount = 0;
-let playing = false;
-const HOP_DURATION = 900;
-const MAX_LOG_LINES = 5;
+COLONY.Links.forEach(l => {
+  const a = roomPct[l.From], b = roomPct[l.To];
+  if (!a || !b) return;
+  const line = document.createElementNS(svgNS, 'line');
+  line.setAttribute('x1', a.x + '%'); line.setAttribute('y1', a.y + '%');
+  line.setAttribute('x2', b.x + '%'); line.setAttribute('y2', b.y + '%');
+  line.setAttribute('stroke', '#524535'); line.setAttribute('stroke-width', '2');
+  linkSvg.appendChild(line);
+});
 
-function log(msg, isStep) {
+const nodeEls = {};
+COLONY.Rooms.forEach(r => {
+  const p = roomPct[r.Name];
+  const isSE = r.IsStart || r.IsEnd;
+  const div = document.createElement('div');
+  div.className = isSE
+    ? 'absolute w-12 h-12 backdrop-blur-sm rounded-full border-2 flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 ' +
+      (r.IsStart ? 'border-secondary node-idle-start' : 'border-primary node-idle-end')
+    : 'absolute w-8 h-8 bg-surface-container/80 backdrop-blur-sm rounded-full border border-outline-variant flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2';
+  div.style.left = p.x + '%';
+  div.style.top = p.y + '%';
+  const label = document.createElement('span');
+  label.className = 'font-data-mono text-xs absolute -bottom-6 whitespace-nowrap bg-black/50 px-1 rounded ' +
+    (r.IsStart ? 'text-secondary' : r.IsEnd ? 'text-primary' : 'text-on-surface-variant');
+  label.textContent = r.IsStart ? '##start' : r.IsEnd ? '##end' : r.Name;
+  div.appendChild(label);
+  nodeLayer.appendChild(div);
+  nodeEls[r.Name] = div;
+});
+
+function pulseNode(name, isStart) {
+  const el = nodeEls[name];
+  if (!el) return;
+  el.classList.remove(isStart ? 'node-idle-start' : 'node-idle-end');
+  el.classList.add(isStart ? 'node-pulse-start' : 'node-pulse-end');
+  setTimeout(() => {
+    el.classList.remove(isStart ? 'node-pulse-start' : 'node-pulse-end');
+    el.classList.add(isStart ? 'node-idle-start' : 'node-idle-end');
+  }, 600);
+}
+
+let antEls = {};
+let turnIndex = 0, moveCount = 0, arrivedCount = 0, playing = false;
+
+function log(msg, kind) {
   const el = document.getElementById('termLog');
   const div = document.createElement('div');
-  div.className = isStep ? 'step' : 'move';
-  div.textContent = (isStep ? '' : '  ') + msg;
+  div.className = kind === 'step' ? 'text-secondary' : kind === 'move' ? 'text-primary' : 'text-outline';
+  div.textContent = msg;
   el.appendChild(div);
-  while (el.children.length > MAX_LOG_LINES) el.removeChild(el.firstChild);
+  while (el.children.length > 6) el.removeChild(el.firstChild);
 }
 
-function pulseStart() { startPulse = { intensity: 1 }; }
-function pulseEnd() { endPulse = { intensity: 1 }; }
-function decay(p) {
-  if (!p) return null;
-  p.intensity -= 1000/600/60;
-  return p.intensity <= 0 ? null : p;
-}
-
-function draw() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  ctx.strokeStyle = TUNNEL;
-  ctx.lineWidth = 1;
-  COLONY.Links.forEach(l => {
-    const a = roomPos[l.From], b = roomPos[l.To];
-    if (!a || !b) return;
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-  });
-
-  COLONY.Rooms.forEach(r => {
-    const p = roomPos[r.Name];
-    const isStart = r.IsStart, isEnd = r.IsEnd;
-    ctx.save();
-
-    if (isStart || isEnd) {
-      const size = 40;
-      const glow = isStart ? startPulse : endPulse;
-      const glowColor = isStart ? CYAN : AMBER;
-      if (glow) { ctx.shadowColor = glowColor; ctx.shadowBlur = 30 * glow.intensity; }
-      ctx.fillStyle = '#161616';
-      ctx.strokeStyle = glow ? glowColor : AMBER;
-      ctx.lineWidth = 2;
-      roundRect(ctx, p.x - size/2, p.y - size/2, size, size, 4);
-      ctx.fill(); ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = DIM;
-      ctx.font = '11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(isStart ? '##start' : '##end', p.x, p.y + size/2 + 16);
-    } else {
-      const radius = 16;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.strokeStyle = TUNNEL;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI*2);
-      ctx.fill(); ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = DIM;
-      ctx.font = '11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(r.Name, p.x, p.y + radius + 16);
-    }
-  });
-
-  Object.entries(ants).forEach(([id, a]) => {
-    ctx.save();
-    ctx.shadowColor = AMBER; ctx.shadowBlur = 10;
-    ctx.beginPath(); ctx.arc(a.x, a.y, 6, 0, Math.PI*2);
-    ctx.fillStyle = AMBER; ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = AMBER;
-    ctx.font = '9px "JetBrains Mono", monospace';
-    ctx.fillText('L' + id, a.x + 9, a.y - 9);
-  });
-
-  startPulse = decay(startPulse);
-  endPulse = decay(endPulse);
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+function ensureAnt(id) {
+  if (antEls[id]) return antEls[id];
+  const dot = document.createElement('div');
+  dot.className = 'absolute w-3 h-3 bg-primary rounded-full ant-glow ant-dot transform -translate-x-1/2 -translate-y-1/2';
+  const label = document.createElement('span');
+  label.className = 'font-data-mono text-[10px] text-primary absolute -top-4 -left-1';
+  label.textContent = 'L' + id;
+  dot.appendChild(label);
+  antLayer.appendChild(dot);
+  antEls[id] = dot;
+  return dot;
 }
 
 function applyTurn(turn) {
-  log('Step ' + (turnIndex+1) + ':', true);
-  const lineParts = [];
+  log('> Step ' + (turnIndex + 1), 'step');
+  const moves = [];
   turn.Moves.forEach(m => {
-    const fromRoom = ants[m.Ant] ? ants[m.Ant].room : startRoomName;
-    const fromPos = ants[m.Ant] ? { x: ants[m.Ant].x, y: ants[m.Ant].y } : roomPos[startRoomName];
-    const target = roomPos[m.Room];
-    const isArriving = m.Room === endRoomName;
-
-    ants[m.Ant] = {
-      x: fromPos.x, y: fromPos.y,
-      startX: fromPos.x, startY: fromPos.y,
-      targetX: target.x, targetY: target.y,
-      startTime: performance.now(),
-      room: m.Room,
-      arriving: isArriving
-    };
+    const fromRoom = antEls[m.Ant] ? antEls[m.Ant].dataset.room : startName;
+    const dot = ensureAnt(m.Ant);
+    const target = roomPct[m.Room];
+    dot.style.left = target.x + '%';
+    dot.style.top = target.y + '%';
+    dot.style.opacity = '1';
+    dot.dataset.room = m.Room;
     moveCount++;
-
-    if (fromRoom === startRoomName) pulseStart();
-    if (isArriving) pulseEnd();
-
-    lineParts.push('L' + m.Ant + '-' + m.Room);
+    if (fromRoom === startName) pulseNode(startName, true);
+    if (m.Room === endName) {
+      pulseNode(endName, false);
+      setTimeout(() => {
+        dot.style.opacity = '0';
+        arrivedCount++;
+        document.getElementById('antCount').textContent = arrivedCount + '/' + COLONY.NumAnts;
+      }, 850);
+    }
+    moves.push('L' + m.Ant + '-' + m.Room);
   });
-  log(lineParts.join(' '));
+  log(moves.join(' '), 'move');
   document.getElementById('moveCount').textContent = moveCount;
 }
 
@@ -160,37 +121,25 @@ function stepForward() {
 }
 
 function reset() {
-  ants = {}; startPulse = null; endPulse = null; turnIndex = 0; moveCount = 0; arrivedCount = 0; playing = false;
+  Object.values(antEls).forEach(el => el.remove());
+  antEls = {}; turnIndex = 0; moveCount = 0; arrivedCount = 0; playing = false;
   document.getElementById('termLog').innerHTML = '';
   document.getElementById('moveCount').textContent = 0;
-  document.getElementById('antCount').textContent = 0;
-  document.getElementById('playBtn').classList.remove('active');
+  document.getElementById('antCount').textContent = '0/' + COLONY.NumAnts;
 }
 
-document.getElementById('antTotal').textContent = COLONY.NumAnts;
+document.getElementById('antCount').textContent = '0/' + COLONY.NumAnts;
+log('Initializing simulation...', 'idle');
+log('Ants ready: ' + COLONY.NumAnts, 'idle');
 document.getElementById('stepBtn').onclick = stepForward;
-document.getElementById('playBtn').onclick = () => {
-  playing = !playing;
-  document.getElementById('playBtn').classList.toggle('active', playing);
-};
+document.getElementById('playBtn').onclick = () => { playing = !playing; };
 document.getElementById('resetBtn').onclick = reset;
 
-let lastTurnTick = 0;
-function animationLoop(now) {
-  Object.entries(ants).forEach(([id, a]) => {
-    const t = Math.min(1, (now - a.startTime) / HOP_DURATION);
-    a.x = a.startX + (a.targetX - a.startX) * t;
-    a.y = a.startY + (a.targetY - a.startY) * t;
-    if (t >= 1 && a.arriving) {
-      arrivedCount++;
-      document.getElementById('antCount').textContent = arrivedCount;
-      delete ants[id];
-    }
-  });
-  draw();
+let lastTick = 0;
+function loop(now) {
   const speed = parseInt(document.getElementById('speed').value);
-  if (playing && now - lastTurnTick > speed) { stepForward(); lastTurnTick = now; }
-  requestAnimationFrame(animationLoop);
+  if (playing && now - lastTick > speed) { stepForward(); lastTick = now; }
+  requestAnimationFrame(loop);
 }
-requestAnimationFrame(animationLoop);
+requestAnimationFrame(loop);
 `
