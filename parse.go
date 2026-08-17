@@ -22,14 +22,17 @@ func ParseColony(r io.Reader) (*Colony, error) {
 		}
 
 		if stage == "ants" {
-			n, err := strconv.Atoi(line)
-			if err != nil {
-				return nil, fmt.Errorf("invalid number of ants: %w", err)
-			}
-			colony.NumAnts = n
-			stage = "graph"
-			continue
-		}
+    if strings.HasPrefix(line, "ERROR") {
+        return nil, fmt.Errorf("lem-in reported an error: %s", line)
+    }
+    n, err := strconv.Atoi(line)
+    if err != nil {
+        return nil, fmt.Errorf("invalid number of ants: %w", err)
+    }
+    colony.NumAnts = n
+    stage = "graph"
+    continue
+}
 
 		if line == "##start" {
 			nextIsStart = true
